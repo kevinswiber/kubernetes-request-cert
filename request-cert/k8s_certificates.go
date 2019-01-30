@@ -13,6 +13,7 @@
 // permissions and limitations under the License.
 //
 // Author: Marc berhault (marc@cockroachlabs.com)
+// Author: Kevin Swiber (kswiber@gmail.com)
 
 package main
 
@@ -37,10 +38,11 @@ const (
 )
 
 var (
-	kubeConfig   = flag.String("kubeconfig", "", "config file if running from outside the cluster")
-	client       *kubernetes.Clientset
-	clientError  error
-	ChannelError = errors.New("error on the channel")
+	kubeConfig  = flag.String("kubeconfig", "", "config file if running from outside the cluster")
+	client      *kubernetes.Clientset
+	clientError error
+	// ErrChannel indicated an error on the channel.
+	ErrChannel = errors.New("error on the channel")
 )
 
 func getClient() (*kubernetes.Clientset, error) {
@@ -124,7 +126,7 @@ func getKubernetesCertificate(csrName string, csr []byte, wantServerAuth bool, a
 		select {
 		case event, ok := <-watchCh:
 			if !ok {
-				return nil, ChannelError
+				return nil, ErrChannel
 			}
 
 			if event.Object.(*certificates.CertificateSigningRequest).UID != resp.UID {
@@ -161,8 +163,6 @@ func getKubernetesCertificate(csrName string, csr []byte, wantServerAuth bool, a
 			continue
 		}
 	}
-
-	return nil, ChannelError
 }
 
 func storeSecrets(secretName string, cert []byte, key []byte) error {

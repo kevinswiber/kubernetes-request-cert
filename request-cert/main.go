@@ -13,6 +13,7 @@
 // permissions and limitations under the License.
 //
 // Author: Marc berhault (marc@cockroachlabs.com)
+// Author: Kevin Swiber (kswiber@gmail.com)
 
 package main
 
@@ -37,11 +38,12 @@ import (
 var (
 	certificateType = flag.String("type", "", "certificate type: node or client")
 
-	addresses = flag.String("addresses", "", "comma-separated list of DNS names and IP addresses for node certificate")
-	user      = flag.String("user", "", "username for client certificate")
+	addresses    = flag.String("addresses", "", "comma-separated list of DNS names and IP addresses for node certificate")
+	organization = flag.String("organization", "", "organization for certificate")
+	user         = flag.String("user", "", "username for client certificate")
 
 	namespace       = flag.String("namespace", "", "kubernetes namespace for this pod")
-	certsDir        = flag.String("certs-dir", "cockroach-certs", "certs directory")
+	certsDir        = flag.String("certs-dir", "certs", "certs directory")
 	keySize         = flag.Int("key-size", 2048, "RSA key size in bits")
 	symlinkCASource = flag.String("symlink-ca-from", "", "if non-empty, create <certs-dir>/ca.crt linking to this file")
 )
@@ -70,7 +72,7 @@ func main() {
 		if len(*addresses) == 0 {
 			log.Fatal("node certificate requested, but --addresses is empty")
 		}
-		template = serverCSR(strings.Split(*addresses, ","))
+		template = serverCSR(*organization, strings.Split(*addresses, ","))
 
 		// Certificate name for nodes must include a node identifier. We use the hostname.
 		// The CSR name is the same.
@@ -78,10 +80,13 @@ func main() {
 		csrName = *namespace + "." + filename + "." + hostname
 		wantServerAuth = true
 	case "client":
+		if len(*organization) == 0 {
+			log.Fatal("client certificate requested, but --organization is empty")
+		}
 		if len(*user) == 0 {
 			log.Fatal("client certificate requested, but --user is empty")
 		}
-		template = clientCSR(*user)
+		template = clientCSR(*organization, *user)
 
 		// Certificate name for clients must only include the username.
 		// Include the hostname in the CSR name.
@@ -151,7 +156,7 @@ func requestCertificate(
 
 	// Send CSR for approval and certificate generation.
 	pemCert, err := getKubernetesCertificate(csrName, pemCSR, wantServerAuth, false)
-	for i := 0; i < 10 && err == ChannelError; i++ {
+	for i := 0; i < 10 && err == ErrChannel; i++ {
 		pemCert, err = getKubernetesCertificate(csrName, pemCSR, wantServerAuth, true)
 	}
 	if err != nil {
@@ -162,11 +167,11 @@ func requestCertificate(
 }
 
 // serverCSR generates a certificate signing request for a server certificate and returns it.
-// Takes in the list of hosts/ip addresses this certificate applies to.
-func serverCSR(hosts []string) *x509.CertificateRequest {
+// Takes in the organization and a list of hosts/ip addresses this certificate applies to.
+func serverCSR(organization string, hosts []string) *x509.CertificateRequest {
 	csr := &x509.CertificateRequest{
 		Subject: pkix.Name{
-			Organization: []string{"Cockroach"},
+			Organization: []string{organization},
 			CommonName:   "node",
 		},
 	}
@@ -185,11 +190,11 @@ func serverCSR(hosts []string) *x509.CertificateRequest {
 	return csr
 }
 
-// clientCSR generates a certificate signing request for a user. Takes in the username.
-func clientCSR(user string) *x509.CertificateRequest {
+// clientCSR generates a certificate signing request for a user. Takes in the organization and username.
+func clientCSR(organization string, user string) *x509.CertificateRequest {
 	return &x509.CertificateRequest{
 		Subject: pkix.Name{
-			Organization: []string{"Cockroach"},
+			Organization: []string{organization},
 			CommonName:   user,
 		},
 	}
